@@ -11,9 +11,11 @@
             [clojure.java.io :as io])
   (:gen-class))
 
+(def ua {:headers {"User-Agent" "ChkODF/0.1 (https://github.com/fmjrey/chkodf)"}})
+
 (defn get-translated-page-url [source-language target-language page]
   (let [url (str "https://" source-language ".wikipedia.org/w/api.php?action=query&prop=langlinks&titles=" page "&lllang=" target-language "&format=json")
-        response (client/get url)
+        response (client/get url ua)
         body (json/read-str (:body response) :key-fn keyword)
         pages (get-in body [:query :pages])
         page-id (first (keys pages))
@@ -42,8 +44,8 @@
 
 (defn valid-page? [url]
   (try
-    (let [response (client/head url {:throw-exceptions false
-                                    :cookie-policy :none})
+    (let [response (client/head url (merge ua {:throw-exceptions false
+                                               :cookie-policy :none}))
           code (:status response)]
       (println (str code " " url))
       (= 200 (:status response)))
@@ -52,8 +54,8 @@
 
 (defn url-status [url]
   (try
-    (let [response (client/head url {:throw-exceptions false
-                                    :cookie-policy :standard})
+    (let [response (client/head url (merge ua {:throw-exceptions false
+                                               :cookie-policy :standard}))
           code (:status response)]
       ;(println (str "    -> " code))
       code)
