@@ -84,22 +84,18 @@
                 state)))))
       state)))
 
-(defn process-node-list [state ^NodeList nl]
-  (let [l (.getLength  nl)]
-    (if (zero? l)
-      state
-      (loop [i 0
-             state state]
-        (if (< i l)
-          (let [n (.item nl i)]
-            (if (instance? TextAElement n)
-              (recur (inc i) (process-hyperlink state n))
-              (recur (inc i)
-                     (->> n .getChildNodes (process-node-list state)))))
-          state)))))
+(defn node-list-seq [^org.w3c.dom.NodeList node-list]
+  (map (fn [index] (.item node-list index))
+       (range (.getLength node-list))))
 
-(defn process-odt [state]
-  (->> state :doc .getContentRoot .getChildNodes (process-node-list state)))
+(defn process-odf [state]
+  (->> state
+       :doc
+       .getContentRoot
+       (tree-seq (fn [node] (.hasChildNodes node))
+                 (fn [node] (-> node .getChildNodes node-list-seq)))
+       (filter (fn [node] (instance? TextAElement node)))
+       (reduce process-hyperlink state)))
 
 (defn init-state [filename]
   (let [doc (OdfDocument/loadDocument filename)
@@ -141,10 +137,15 @@
               (println "Processing" inputfile)
               (let [state (init-state inputfile)]
                 (println "Language" (state :language))
-                (let [state (process-odt state)]
+                (let [state (process-odf state)]
                   (when (-> state :modified-elements seq)
                     (println (-> state :modified-elements count) "changes")
                     (when outputfile
                       (println "Saving to" outputfile)
                       (.save (:doc state) (io/file outputfile)))))))))
   (println "Program completed."))
+
+(comment
+  (-> (init-state "test.odt")
+      (process-odf)
+  ))
