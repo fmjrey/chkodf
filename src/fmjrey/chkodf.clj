@@ -1,21 +1,53 @@
-(ns chkodf.core
+;; ---------------------------------------------------------
+;; ChkODF
+;;
+;; CLI tool to check URLs in ODF documents, with special
+;; handling of wikipedia URLs.
+;; The idea is to help maintain documents containing a list of
+;; hyperlinks, checking they're still working, and for wikipedia
+;; links checking they're pointing to page in the language of
+;; the document.
+;; ---------------------------------------------------------
+
+(ns fmjrey.chkodf
   (:import [java.util Locale]
-           [org.odftoolkit.odfdom.doc OdfDocument$UnicodeGroup OdfDocument]
            [org.odftoolkit.odfdom.dom.element.text TextAElement]
+           [org.odftoolkit.odfdom.doc OdfDocument$UnicodeGroup OdfDocument]
            [org.w3c.dom Node NodeList]
            [java.net URI URL])
-  (:require [clj-http.client :as client]
+  (:require [com.brunobonacci.mulog :as mulog]
+            [clj-http.client :as client]
             [clojure.data.json :as json]
             [clojure.string :as str]
             [clojure.tools.cli :refer [parse-opts]]
+            [clojure.edn :as edn]
             [clojure.java.io :as io])
   (:gen-class))
 
-(def ua {:headers {"User-Agent" "ChkODF/0.1 (https://github.com/fmjrey/chkodf)"}})
+;; ---------------------------------------------------------
+;; Load version info from the version.edn file resource
+
+(def version-info (-> "version.edn" io/resource slurp edn/read-string))
+(def app-name (:app-name version-info))
+(def app-home (:app-home version-info))
+(def app-cli (:app-cli version-info))
+(def major-version (:major-version version-info))
+(def minor-version (:minor-version version-info))
+(def version-string (:version-string version-info))
+
+;; ---------------------------------------------------------
+;; User Agent header needed by Wikipedia otherwise it blocks
+
+(def user-agent (str app-name "/" major-version "." minor-version
+                     " (" app-home ")"))
+(def headers {:headers {"User-Agent" user-agent}})
+
+;; ---------------------------------------------------------
+;; Wikipedia URL handling
 
 (defn get-translated-page-url [source-language target-language page]
   (let [url (str "https://" source-language ".wikipedia.org/w/api.php?action=query&prop=langlinks&titles=" page "&lllang=" target-language "&format=json")
-        response (client/get url ua)
+        response (client/get url headers)
         body (json/read-str (:body response) :key-fn keyword)
         pages (get-in body [:query :pages])
         page-id (first (keys pages))
@@ -42,9 +74,12 @@
           [state url])))
     [state url]))
 
+;; ---------------------------------------------------------
+;; General URL handling
+
 (defn valid-page? [url]
   (try
-    (let [response (client/head url (merge ua {:throw-exceptions false
+    (let [response (client/head url (merge headers {:throw-exceptions false
                                                :cookie-policy :none}))
           code (:status response)]
       (println (str code " " url))
@@ -54,7 +89,7 @@
 
 (defn url-status [url]
   (try
-    (let [response (client/head url (merge ua {:throw-exceptions false
+    (let [response (client/head url (merge headers {:throw-exceptions false
                                                :cookie-policy :standard}))
           code (:status response)]
       ;(println (str "    -> " code))
@@ -62,6 +97,8 @@
     (catch Exception e
       (println "    ERROR: fetching throws " e))))
 
+;; ---------------------------------------------------------
+;; ODF document handling
 (defn process-hyperlink [state ^TextAElement n]
   (let [href (.getXlinkHrefAttribute n)]
     (println "--- Checking" href)
@@ -97,6 +134,10 @@
        (filter (fn [node] (instance? TextAElement node)))
        (reduce process-hyperlink state)))
 
+
+;; ---------------------------------------------------------
+;; Application
+
 (defn init-state [filename]
   (let [doc (OdfDocument/loadDocument filename)
         locale (.getLocale doc OdfDocument$UnicodeGroup/WESTERN)]
@@ -107,7 +148,7 @@
      :modified-elements #{}}))
 
 (defn usage [options-summary]
-  (str "Usage: chkodf [options] <input file> [<output-file>]\n"
+  (str "Usage: " app-cli " [options] <input file> [<output-file>]\n"
        "Options:\n"
        options-summary))
 
@@ -127,8 +168,23 @@
    (usage options-summary)
    (System/exit status)))
 
-(defn -main [& args]
+(defn greet
+  "Prints a greeting message"
+  [options]
+  (let [{:keys [username]} options]
+    (cond-> ""
+      true     (str app-name " - version " version-string)
+      username (str ", run by " username)
+      true     (str "\nUser-Agent " user-agent)
+      true     println)))
+
+(defn -main
+  "Entry point into the application via clojure.main -M"
+  [& args]
   (let [{:keys [options arguments errors summary]} (parse-opts args cli-options)]
+    (mulog/set-global-context! version-info)
+    (mulog/log ::application-starup :arguments args)
+    (greet nil)
     (cond
       (:help options) (exit 0 (usage summary))
       errors (exit 1 (error-msg errors))
@@ -142,10 +198,21 @@
                     (println (-> state :modified-elements count) "changes")
                     (when outputfile
                       (println "Saving to" outputfile)
-                      (.save (:doc state) (io/file outputfile)))))))))
-  (println "Program completed."))
+                      (.save (:doc state) (io/file outputfile))))))))
+    (println (str app-name "completed."))))
 
+;; ---------------------------------------------------------
+
+
+;; ---------------------------------------------------------
+;; Rich Comment
 (comment
-  (-> (init-state "test.odt")
-      (process-odf)
-  ))
+  (->
+    (init-state "test.odt")
+    (process-odf)
+    )
+
+  (-main)
+
+  #_()) ; End of rich comment block
+;; ---------------------------------------------------------

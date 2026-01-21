@@ -1,0 +1,54 @@
+{;; ---------------------------------------------------------
+ :paths
+ ["src" "resources"]
+ ;; ---------------------------------------------------------
+
+ ;; ---------------------------------------------------------
+ :deps
+ {;; Application
+  org.clojure/clojure {:mvn/version "1.12.4"}
+  com.brunobonacci/mulog {:mvn/version "0.10.0"}
+  org.odftoolkit/odfdom-java {:mvn/version "0.12.0"},
+  clj-http/clj-http {:mvn/version "3.13.0"},
+  org.clojure/data.json {:mvn/version "2.5.1"},
+  clojurewerkz/urly {:mvn/version "1.0.0"}
+  org.clojure/tools.cli {:mvn/version "1.1.230"}}
+ ;; ---------------------------------------------------------
+
+ ;; ---------------------------------------------------------
+ :aliases
+ {;; ------------
+  ;; Clojure.main execution of application
+  :run/app
+  {:main-opts ["-m" "fmjrey.chkodf"]}
+
+  ;; Clojure.exec execution of specified function
+  :run/greet
+  {:exec-fn fmjrey.chkodf/greet
+   :exec-args {}}
+  ;; ------------
+
+  ;; ------------
+  ;; Add libraries and paths to support additional test tools
+  :test/env
+  {}
+
+  ;; Test runner - local and CI
+  ;; call with :watch? true to start file watcher and re-run tests on saved changes
+  :test/run
+  {:extra-paths ["test"]
+   :extra-deps {lambdaisland/kaocha {:mvn/version "1.91.1392"}}
+   :main-opts   ["-m" "kaocha.runner"]
+   :exec-fn kaocha.runner/exec-fn
+   :exec-args {:randomize? false
+               :fail-fast? true}}
+  ;; ------------
+
+  ;; ------------
+  ;; tools.build `build.clj` built script
+  :build/task
+  {:replace-paths ["."]
+   :replace-deps  {io.github.clojure/tools.build {:mvn/version "0.10.3"}}
+   :ns-default    build}}}
+  ;; ------------
+ ;; ---------------------------------------------------------
