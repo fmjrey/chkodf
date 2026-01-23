@@ -48,7 +48,7 @@
 (def app-name "ChkODF")
 (def app-home "https://github.com/fmjrey/chkodf")
 (def app-cli "chkodf")
-(def target-dir (io/file "target"))
+(def target-dir "target")
 
 ;; Config map that may be merged with tools.build cli options
 (def project-config
@@ -56,7 +56,8 @@
   {:main-namespace  'fmjrey/chkodf
    :project-basis   (build-api/create-basis)
    :class-directory "target/classes"
-   :uberjar-file (io/file target-dir (format "%s-%s.jar" app version-string))})
+   :uberjar-file (str (io/file target-dir
+                               (format "%s-%s.jar" app version-string)))})
 
 (defn config
   "Display build configuration"
@@ -71,7 +72,7 @@
 
 (defn write-version-file
   "Write the current version to a file."
-  [_]
+  []
   (build-api/write-file
    {:path (str version-file)
     :content {:app-name app-name
@@ -134,13 +135,13 @@
   [options]
   (let [config (merge project-config options)
         {:keys [uberjar-file dest-dir filename chmod-permissions]
-         :or {dest-dir (io/file (System/getProperty "user.home")
-                                ".local" "bin")
+         :or {dest-dir (str (io/file (System/getProperty "user.home")
+                                     ".local" "bin"))
               filename app-cli
               chmod-permissions "u=rwx,g=rx,o=rx"}} config
-        dest-filepath (io/file dest-dir filename)]
+        dest-filepath (str (io/file dest-dir filename))]
     (uberjar options)
-    (build-api/copy-file uberjar-file dest-filepath)
+    (build-api/copy-file {:src uberjar-file :target dest-filepath})
     (build-api/process {:command-args ["chmod" chmod-permissions dest-filepath]})
     (println "Deployed executable to" (str dest-filepath))))
 
