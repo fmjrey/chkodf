@@ -7,15 +7,15 @@
 ;; ---------------------------------------------------------
 
 (ns mulog-events
-  (:require
-   [com.brunobonacci.mulog        :as mulog]
-   [com.brunobonacci.mulog.buffer :as mulog-buffer]))
+  (:require [app :refer [app-name version-string]]
+            [com.brunobonacci.mulog        :as mulog]
+            [com.brunobonacci.mulog.buffer :as mulog-buffer]))
 
 ;; ---------------------------------------------------------
 ;; Set event global context
 ;; - information added to every event for REPL workflow
-(mulog/set-global-context! {:app-name "chkodf Service",
-                            :version "0.1.0", :env "dev"})
+(mulog/set-global-context! {:app-name app-name
+                            :version version-string})
 ;; ---------------------------------------------------------
 
 ;; ---------------------------------------------------------

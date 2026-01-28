@@ -15,25 +15,15 @@
            [org.odftoolkit.odfdom.doc OdfDocument$UnicodeGroup OdfDocument]
            [org.w3c.dom Node NodeList]
            [java.net URI URL])
-  (:require [com.brunobonacci.mulog :as mulog]
+  (:require [app :refer [app-info app-name app-home app-cli
+                         major-version minor-version version-string]]
+            [com.brunobonacci.mulog :as mu]
             [clj-http.client :as client]
             [clojure.data.json :as json]
             [clojure.string :as str]
             [clojure.tools.cli :refer [parse-opts]]
-            [clojure.edn :as edn]
             [clojure.java.io :as io])
   (:gen-class))
-
-;; ---------------------------------------------------------
-;; Load version info from the version.edn file resource
-
-(def version-info (-> "version.edn" io/resource slurp edn/read-string))
-(def app-name (:app-name version-info))
-(def app-home (:app-home version-info))
-(def app-cli (:app-cli version-info))
-(def major-version (:major-version version-info))
-(def minor-version (:minor-version version-info))
-(def version-string (:version-string version-info))
 
 ;; ---------------------------------------------------------
 ;; User Agent header needed by Wikipedia otherwise it blocks
@@ -169,21 +159,22 @@
    (System/exit status)))
 
 (defn greet
-  "Prints a greeting message"
-  [options]
-  (let [{:keys [username]} options]
-    (cond-> ""
-      true     (str app-name " - version " version-string)
-      username (str ", run by " username)
-      true     (str "\nUser-Agent " user-agent)
-      true     println)))
+  "Return a greeting message"
+  ([] (greet nil))
+  ([options]
+   (let [{:keys [username]} options]
+     (cond-> ""
+       true     (str app-name " - version " version-string)
+       username (str ", run by " username)
+       true     (str "\nUser-Agent: " user-agent)
+       true     println))))
 
 (defn -main
   "Entry point into the application via clojure.main -M"
   [& args]
   (let [{:keys [options arguments errors summary]} (parse-opts args cli-options)]
-    (mulog/set-global-context! version-info)
-    (mulog/log ::application-starup :arguments args)
+    (mu/set-global-context! app-info)
+    (mu/log ::application-startup :arguments args)
     (greet nil)
     (cond
       (:help options) (exit 0 (usage summary))

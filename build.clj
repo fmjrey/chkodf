@@ -22,7 +22,8 @@
 (ns build
   (:import [java.time LocalDateTime ZoneOffset]
            [java.time.format DateTimeFormatter])
-  (:require [clojure.tools.build.api :as build-api]
+  (:require [app]
+            [clojure.tools.build.api :as build-api]
             [clojure.java.io :as io]
             [clojure.pprint :as pprint]))
 
@@ -41,7 +42,6 @@
           major-version minor-version
           (build-api/git-count-revs nil)
           (.format timestamp-formatter (LocalDateTime/now))))
-(def version-file (io/file "resources" "version.edn"))
 
 ;; Project/app name
 (def app 'fmjrey/chkodf) ;; build-api/write-pom expects a symbol
@@ -70,17 +70,15 @@
 ;; ---------------------------------------------------------
 ;; Build tasks
 
-(defn write-version-file
-  "Write the current version to a file."
-  []
-  (build-api/write-file
-   {:path (str version-file)
-    :content {:app-name app-name
-              :app-home app-home
-              :app-cli app-cli
-              :major-version major-version
-              :minor-version minor-version
-              :version-string version-string}}))
+(defn write-app-info
+  "Write app info and version to a file."
+  [_]
+  (app/write-app-info {:app-name app-name
+                       :app-home app-home
+                       :app-cli app-cli
+                       :major-version major-version
+                       :minor-version minor-version
+                       :version-string version-string}))
 
 (defn clean
   "Remove a directory
@@ -103,7 +101,7 @@
 
     (clean target-dir)
 
-    (write-version-file)
+    (write-app-info nil)
 
     (build-api/copy-dir {:src-dirs   ["src" "resources"]
                          :target-dir class-directory})
@@ -143,7 +141,7 @@
     (uberjar options)
     (build-api/copy-file {:src uberjar-file :target dest-filepath})
     (build-api/process {:command-args ["chmod" chmod-permissions dest-filepath]})
-    (println "Deployed executable to" (str dest-filepath))))
+    (println "Deployed executable to" dest-filepath)))
 
 ;; End of Deployment tasks
 ;; ---------------------------------------------------------

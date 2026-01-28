@@ -1,6 +1,6 @@
 {;; ---------------------------------------------------------
  :paths
- ["src" "resources"]
+ ["." "src" "resources"]
  ;; ---------------------------------------------------------
 
  ;; ---------------------------------------------------------
@@ -47,7 +47,7 @@
   ;; ------------
   ;; tools.build `build.clj` built script
   :build/task
-  {:replace-paths ["."]
+  {:replace-paths ["." "resources"]
    :replace-deps  {io.github.clojure/tools.build {:mvn/version "0.10.3"}}
    :ns-default    build}}}
   ;; ------------

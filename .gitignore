@@ -17,13 +17,12 @@
 
 # ------------------------
 # Include Clojure project & config
+!app.clj
 !build.clj
 !deps.edn
 !pom.xml
 !dev/
 !docs/
-!resources/
-resources/version.edn
 !src/
 !test/
 
