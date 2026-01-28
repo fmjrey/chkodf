@@ -9,10 +9,11 @@
   org.clojure/clojure {:mvn/version "1.12.4"}
   com.brunobonacci/mulog {:mvn/version "0.10.0"}
   org.odftoolkit/odfdom-java {:mvn/version "0.12.0"},
-  clj-http/clj-http {:mvn/version "3.13.0"},
+  clj-http/clj-http {:mvn/version "3.13.1"},
   org.clojure/data.json {:mvn/version "2.5.1"},
   clojurewerkz/urly {:mvn/version "1.0.0"}
-  org.clojure/tools.cli {:mvn/version "1.1.230"}}
+  org.clojure/tools.cli {:mvn/version "1.1.230"}
+  missionary/missionary {:mvn/version "b.46"}}
  ;; ---------------------------------------------------------
 
  ;; ---------------------------------------------------------
@@ -48,7 +49,7 @@
   ;; tools.build `build.clj` built script
   :build/task
   {:replace-paths ["." "resources"]
-   :replace-deps  {io.github.clojure/tools.build {:mvn/version "0.10.3"}}
+   :replace-deps  {io.github.clojure/tools.build {:mvn/version "0.10.12"}}
    :ns-default    build}}}
   ;; ------------
  ;; ---------------------------------------------------------

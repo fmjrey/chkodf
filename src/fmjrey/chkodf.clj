@@ -14,15 +14,17 @@
            [org.odftoolkit.odfdom.dom.element.text TextAElement]
            [org.odftoolkit.odfdom.doc OdfDocument$UnicodeGroup OdfDocument]
            [org.w3c.dom Node NodeList]
-           [java.net URI URL])
+           [java.net URI URL]
+           [java.util.concurrent Future])
   (:require [app :refer [app-info app-name app-home app-cli
                          major-version minor-version version-string]]
             [com.brunobonacci.mulog :as mu]
-            [clj-http.client :as client]
+            [clj-http.client :as http]
             [clojure.data.json :as json]
             [clojure.string :as str]
             [clojure.tools.cli :refer [parse-opts]]
-            [clojure.java.io :as io])
+            [clojure.java.io :as io]
+            [missionary.core :as m])
   (:gen-class))
 
 ;; ---------------------------------------------------------
@@ -33,11 +35,45 @@
 (def headers {:headers {"User-Agent" user-agent}})
 
 ;; ---------------------------------------------------------
+;; Helper functions to use clj-http with missionary
+
+;; Counter incremented for each request. Useful to track creation
+;; order and filter logs for a specific request.
+(defonce request-counter (atom 0))
+
+(defn http-request-task
+  "Build a clj-http async request task with the given request params.
+  Return a 2-arity function taking two 1-arity functions, success and failure,
+  and returning a 0-arity cancel function."
+  [& {:keys [] :as request}]
+  (mu/with-context {:request-id (swap! request-counter inc)}
+    (let [ctx (mu/local-context) ;; capture thread-local context
+          request (assoc request :async? true)]
+      (mu/log ::http-request-creation :request request)
+      (fn [success-fn failure-fn]
+        (mu/with-context ctx (mu/log ::http-request-execution))
+        (let [^Future request-future
+              (http/request
+                (assoc request
+                       :oncancel #(do (mu/with-context ctx
+                                        (mu/log ::http-request-cancelled))
+                                      (failure-fn (ex-info "Request cancelled"
+                                                           {:request request}))))
+                #(do (mu/with-context ctx
+                       (mu/log ::http-request-completed :response %))
+                     (success-fn %))
+                #(do (mu/with-context ctx
+                       (mu/log ::http-request-failed :exception %))
+                     (failure-fn %)))]
+          #(do (mu/with-context ctx (mu/log ::http-request-cancellation))
+               (.cancel request-future true)))))))
+
+;; ---------------------------------------------------------
 ;; Wikipedia URL handling
 
 (defn get-translated-page-url [source-language target-language page]
   (let [url (str "https://" source-language ".wikipedia.org/w/api.php?action=query&prop=langlinks&titles=" page "&lllang=" target-language "&format=json")
-        response (client/get url headers)
+        response (http/get url headers)
         body (json/read-str (:body response) :key-fn keyword)
         pages (get-in body [:query :pages])
         page-id (first (keys pages))
@@ -67,28 +103,22 @@
 ;; ---------------------------------------------------------
 ;; General URL handling
 
-(defn valid-page? [url]
-  (try
-    (let [response (client/head url (merge headers {:throw-exceptions false
-                                               :cookie-policy :none}))
-          code (:status response)]
-      (println (str code " " url))
-      (= 200 (:status response)))
-    (catch Exception e
-      false)))
-
 (defn url-status [url]
   (try
-    (let [response (client/head url (merge headers {:throw-exceptions false
-                                               :cookie-policy :standard}))
+    (let [response (m/? (http-request-task
+                          (merge headers {:method :head
+                                          :url url
+                                          :throw-exceptions false
+                                          :cookie-policy :none})))
           code (:status response)]
       ;(println (str "    -> " code))
       code)
     (catch Exception e
-      (println "    ERROR: fetching throws " e))))
+      (println "    ERROR​ fetching throws " (.getMessage e)))))
 
 ;; ---------------------------------------------------------
 ;; ODF document handling
+
 (defn process-hyperlink [state ^TextAElement n]
   (let [href (.getXlinkHrefAttribute n)]
     (println "--- Checking" href)
@@ -120,9 +150,21 @@
        :doc
        .getContentRoot
        (tree-seq (fn [node] (.hasChildNodes node))
-                 (fn [node] (-> node .getChildNodes node-list-seq)))
-       (filter (fn [node] (instance? TextAElement node)))
-       (reduce process-hyperlink state)))
+                 (fn [node] (-> node
+                                .getChildNodes
+                                node-list-seq)))
+       m/seed
+       (m/eduction (filter (fn [node]
+                             (instance? TextAElement node))))
+       (m/reduce process-hyperlink state)
+       m/?)
+  #_(->> state
+         :doc
+         .getContentRoot
+         (tree-seq (fn [node] (.hasChildNodes node))
+                   (fn [node] (-> node .getChildNodes node-list-seq)))
+         (filter (fn [node] (instance? TextAElement node)))
+         (reduce process-hyperlink state)))
 
 
 ;; ---------------------------------------------------------
