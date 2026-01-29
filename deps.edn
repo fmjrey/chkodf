@@ -26,7 +26,7 @@
   ;; Clojure.exec execution of specified function
   :run/greet
   {:exec-fn fmjrey.chkodf/greet
-   :exec-args {}}
+   :exec-args {:println? true :username "deps.edn"}}
   ;; ------------
 
   ;; ------------

@@ -201,15 +201,17 @@
    (System/exit status)))
 
 (defn greet
-  "Return a greeting message"
-  ([] (greet nil))
+  "Return a greeting message, options map can contains :username and :println?
+   to optionally include the user name and call println."
+  ([] (greet {:println? true}))
   ([options]
-   (let [{:keys [username]} options]
-     (cond-> ""
-       true     (str app-name " - version " version-string)
-       username (str ", run by " username)
-       true     (str "\nUser-Agent: " user-agent)
-       true     println))))
+   (let [{:keys [username println?]} options
+         msg (cond-> ""
+               true     (str app-name " - version " version-string)
+               username (str ", run by " username)
+               true     (str "\nUser-Agent: " user-agent))]
+     (when println? (println msg))
+     msg)))
 
 (defn -main
   "Entry point into the application via clojure.main -M"
@@ -217,7 +219,7 @@
   (let [{:keys [options arguments errors summary]} (parse-opts args cli-options)]
     (mu/set-global-context! app-info)
     (mu/log ::application-startup :arguments args)
-    (greet nil)
+    (greet)
     (cond
       (:help options) (exit 0 (usage summary))
       errors (exit 1 (error-msg errors))
