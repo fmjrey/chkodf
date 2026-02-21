@@ -25,6 +25,7 @@
 !docs/
 !src/
 !test/
+!test1.odt
 
 # ------------------------
 # Include Clojure tools

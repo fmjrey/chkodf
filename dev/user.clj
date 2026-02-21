@@ -18,8 +18,11 @@
    [mulog-events]                      ; Event Logging
    [com.brunobonacci.mulog :as mulog]  ; Global context & Tap publisher
    [portal]
-   [portal.api :as inspect]                          ; Data inspector
-   [clojure.tools.namespace.repl :as namespace]))
+   [portal.api :as inspect]            ; Data inspector
+   [clojure.tools.namespace.repl :as namespace]
+   [fmjrey.chkodf]
+   [missionary.core :as m]
+   ))
 
 ;; ---------------------------------------------------------
 ;; Help
@@ -107,7 +110,38 @@
 
   (inspect/docs) ; View docs locally via Portal
 
-  (mulog-events/stop)            ; stop publishing log events
+  (mulog-events/stop) ; stop publishing log events
+
+  ; Make sure the portal window is opened before these
+
+  (do (inspect/clear) (namespace/refresh) (fmjrey.chkodf/run "test1.odt"))
+
+  (do (inspect/clear)
+      (namespace/refresh)
+      (-> (fmjrey.chkodf/init-app-state
+           "en"
+           ["https://en.wiktionary.org/wiki/aliquam"
+            "http://en.wikipedia.org/wiki/Lorem_ipsum"
+            "https://en.wikipedia.org/wiki/Lorem_ipsum"
+            "https://en.wikipedia.org/wiki/JDK"
+            "https://en.wikipedia.org/wik/Lorem_ipsum"
+            "https://en.wikipedia.org/wiki/Voluptuary"
+            "http://en.wikipedia.org/wiki/Labore"
+            "https://owasp.org/badurl"
+            "https://fr.wikipedia.org/wiki/NotAPage"
+            "http://dymmy.web.site/url"
+            "https://en.wikipedia.org/wiki/Kōta_Takai"
+            "mailto:dymmy@email.dot.tld"
+            "https://en.wikipedia.org/wiki/Kōta_Takai"
+            "https://en.wikipedia.org/wiki/Dolores_O'Riordan"
+            "https://fr.wikipedia.org/wiki/Dolores_O'Riordan"
+            "http://owasp.org/badurl"
+            "http://kyoto-keihoku.jp/en/howto/see/1714/"
+            "https://github.com/takimata"
+            "https://fr.wiktionary.org/wiki/dolor"
+            "https://www.wordhippo.com/what-is/the-meaning-of/latin-word-03528c2f93ecdfb462a61d01138006b711511285.html"])
+          fmjrey.chkodf/process-app-state)
+      (println "Finished"))
 
   #_()) ; End of rich comment
 
