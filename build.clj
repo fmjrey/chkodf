@@ -32,7 +32,7 @@
 
 ;; Versioning
 (def major-version 0)
-(def minor-version 2)
+(def minor-version 3)
 (def timestamp-formatter
   (-> "yyyyMMddHHmmss"
       DateTimeFormatter/ofPattern
