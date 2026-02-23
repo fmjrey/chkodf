@@ -184,10 +184,15 @@
   [state url]
   (get-in state [:results-by-url url]))
 
-(defmacro wait-for-url-result
+(defmacro await-url-result
   "Return the result value for a given url, blocking thread if not yet ready."
   [state url]
-  `(m/? (url-dfv ~state ~url)))
+  `(m/? (url-dfv ~state ~url))
+  ;;`(do
+  ;;   (mu/log ::await-url-result :state ~state :url ~url)
+  ;;   (m/? (url-dfv ~state ~url)))
+  ;;
+)
 
 (defn assign
   "Assign a result for a given URL in the state.
@@ -458,7 +463,7 @@
               https-url? (and https-url (= url https-url))
               https-url-result (and http-url? ;; cant' wait on oneself
                                     (url-in? state https-url)
-                                    (wait-for-url-result state https-url))]
+                                    (await-url-result state https-url))]
           (if https-url
             ;; 3/ url is http or https
             (if (and http-url? https-url-result)
@@ -501,7 +506,7 @@
                   (let [https-url-result (or https-url-result
                                              (and http-url? ;; cant' wait on oneself
                                                   (url-in? state https-url)
-                                                  (wait-for-url-result
+                                                  (await-url-result
                                                    state https-url))
                                              (m/? (url-status state https-url)))]
                     (if https-url?
@@ -513,19 +518,25 @@
 
 (defn process-urls
   "Return a flow of tasks processing each URL of a given sequence.
-  Each tasks is built with `process-url` and return an updated state."
-  [state-or-language urls]
-  (let [state (if (string? state-or-language)
-                {:language state-or-language}
-                state-or-language)]
-    (mu/log ::process-urls :state state :urls urls)
-    (m/ap
-      (loop [state (init-state state-or-language)
-             urls urls]
-        (if (seq urls)
-          (let [state (m/? (process-url state (first urls)))]
-            (m/amb state (recur state (next urls))))
-          (m/amb))))))
+  Each tasks is built with `process-url` and return an updated state.
+  An optional parameter defines the number of concurrent URL processing,
+  which by default are processed sequentially."
+  ([state-or-language urls]
+   (let [state (if (string? state-or-language)
+                 {:language state-or-language}
+                 state-or-language)]
+     (mu/log ::process-urls :state state :urls urls)
+     (m/ap
+       (loop [state (init-state state-or-language)
+              urls urls]
+         (if (seq urls)
+           (let [state (m/? (process-url state (first urls)))]
+             (m/amb state (recur state (next urls))))
+           (m/amb))))))
+  ;; TODO: make state an atom and use m/join instead of the loop above
+  ;; until then the below will still process URLs sequentially
+  ([par state-or-language urls]
+   (m/ap (m/?> par (process-urls state-or-language urls)))))
 
 ;; ---------------------------------------------------------
 ;; Parse ODF document and generate a sequence of URL strings
@@ -571,6 +582,9 @@
                       (some->> state
                                :hrefs
                                (process-urls state)
+                               ;; the following does not process URLs in //
+                               ;; See TODO comment in process-urls
+                               ;;(process-urls 10 state)
                                (m/reduce {} state)
                                m/?)
                       (finally (tear-down state)))]
@@ -630,19 +644,23 @@
 (defn -main
   "Entry point into the application via clojure.main -M"
   [& args]
-  (let [{:keys [options arguments errors summary]}
-        (parse-opts args cli-options)]
-    (mu/set-global-context! app-info)
-    (mu/log ::application-startup :arguments args)
-    (greet)
-    (cond
-      (:help options) (exit 0 (usage summary))
-      errors (exit 1 (error-msg errors))
-      (not (#{1 2} (count arguments)))
-      (exit 1 "Please provide exactly one or two filenames.")
-      :else (let [[inputfile outputfile] arguments]
-              (run inputfile outputfile)))
-    (exit 0 (str app-name " completed."))))
+  (try
+    (let [{:keys [options arguments errors summary]}
+          (parse-opts args cli-options)]
+      (mu/set-global-context! app-info)
+      (mu/log ::application-startup :arguments args)
+      (greet)
+      (cond
+        (:help options) (exit 0 (usage summary))
+        errors (exit 1 (error-msg errors))
+        (not (#{1 2} (count arguments)))
+        (exit 1 "Please provide exactly one or two filenames.")
+        :else (let [[inputfile outputfile] arguments]
+                (run inputfile outputfile)))
+      (exit 0 (str app-name " completed successfully.")))
+    (catch Throwable t
+      (mu/log ::failure :cause (str t) :exception t)
+      (exit 1 (str app-name " completed.")))))
 
 ;; ---------------------------------------------------------
 
