@@ -124,12 +124,11 @@
 
 (defn deploy-bin
   "Build a uberjar and deploy it to the given path and permission.
-  Expected keys and defaults values are
-  `{:uberjar-file uberjar-file`
-  ` :dest-dir \"~/.local/bin\"`
-  ` :filename app-cli`
-  ` :chmod-permissions \"u=rwx,g=rx,o=rx\"}`
-  Merge command line configuration with the default project config."
+  An options map may be passed with these keys (along with their defaults values)
+  `{:uberjar-file target/chkodf.jar ;; the uberjar to generate
+  ` :dest-dir \"~/.local/bin\" ;; where to copy the uberjar`
+  ` :filename \"chkodf\" ;; the name of the executable file`
+  ` :chmod-permissions \"u=rwx,g=rx,o=rx\"} ;; the permissions for executable`"
   [options]
   (let [config (merge project-config options)
         {:keys [uberjar-file dest-dir filename chmod-permissions]
