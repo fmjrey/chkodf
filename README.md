@@ -46,15 +46,28 @@ For example this command create the executable in the project `target` dir:
 
 # Development
 
-This project uses the Practicalli minimal project template, see
-https://practical.li/clojure/clojure-cli/projects/templates/practicalli/
+This project was created using the
+[Practicalli minimal project template](https://practical.li/clojure/clojure-cli/projects/templates/practicalli/)
+which, combined with the
+[clojure CLI config](https://github.com/practicalli/clojure-cli-config)
+of the same author, provide useful tooling for development.
+Of particular interest are the
+[REPL reloaded workflow](https://practical.li/clojure/clojure-cli/repl-reloaded/)
+and the [portal UI](https://github.com/djblue/portal)
+for viewing generated [mulog](https://github.com/BrunoBonacci/mulog) events.
 
-The main advantage of using that template is the tooling it brings for
-development. In particular it provides the reloaded workflow and the portal
-window for viewing generated events. See `dev/user.clj` and load it into a
-REPL. Using emacs the necessary alias should be loaded automatically.
+Both require the `repl/reloaded` alias defined in 
+[`deps.edn` from the clojure CLI config](https://github.com/practicalli/clojure-cli-config/blob/main/deps.edn). With that alias you can then launch the reloaded REPL.
+With emacs the `reloaded` alias is loaded automatically as per `.dir-locals.el`.
 Otherwise use the following command line to start a REPL with these features:
+
 `clojure -M:repl/reloaded`
 
+Finally loading `dev/user.clj` in the reloaded REPL should automatically display
+the Portal UI which will show the `mulog` events generated in the app.
 
-Initial code taken from https://gist.github.com/a1e9755e9b2e7f638620.git
+# Credits
+
+- [Practicalli](https://practical.li/) for the great tooling and templates that
+  helped create this project
+- Initial code taken from https://gist.github.com/a1e9755e9b2e7f638620.git
