@@ -141,50 +141,68 @@
 ;; Application state
 
 (defn init-state
+  "Prepare the application state for processing.
+  Return an atom containing a map of entries used during processing.
+  An optional map can be passed to merge additional entries.
+  Use `tear-down!` after processing to release resources"
   ([] (init-state {}))
   ([state]
-   (merge {:input-urls [] ;; urls given for processing
-           :urls [] ;; urls actually processed (more than input)
-           :dfv-by-url {} ;; {url dfv, url dfv,...}
-           :results-by-url {} ;; {url result, url result,...}
-           :unassigned-urls #{}
-           :dfv-created 0
-           :dfv-assigned 0
-           :urls-by-result {} ;; {:success [urls...] :failure []...}
-           :connection-manager
-           (httpcm/make-reusable-async-conn-manager
-             {:timeout 10 ;; Time in seconds that connections are left open
-              :threads 2  ;; Threads managing the connection pool
-              :default-per-route 3 ;; Max nb of simultaneous conn per host
-              :insecure? true      ;; http allowed
-              :io-config {}        ;; not changing default values for now
-              ;;
-              })}
-          state)))
+   (-> {:input-urls [] ;; urls given for processing
+        :urls [] ;; urls actually processed
+        :dfv-by-url {} ;; {url dfv, url dfv,...}
+        :results-by-url {} ;; {url result, url result,...}
+        :assigned-urls [] ;; tracks the order of results
+        :unassigned-urls #{}
+        :dfv-created 0
+        :dfv-assigned 0
+        :urls-by-result {} ;; {:success [urls...] :failure []...}
+        :connection-manager
+        (httpcm/make-reusable-async-conn-manager
+          {:timeout 10 ;; Time in seconds that connections are left open
+           :threads 2  ;; Threads managing the connection pool
+           :default-per-route 3 ;; Max nb of simultaneous conn per host
+           :insecure? true      ;; http allowed
+           :io-config {}        ;; not changing default values for now
+           ;;
+           })}
+       (merge state)
+       atom)))
 
-(defn tear-down
+(defn tear-down!
+  "Release resources used during processing.
+  The state can either be an atom or a map.
+  Return an updated state value."
   [state]
-  (mu/log ::tear-down)
-  (when-let [cm (:connection-manager state)]
-    (httpcm/shutdown-manager cm))
-  (dissoc state :connection-manager))
+  (let [tear-it (fn [state]
+                  (mu/log ::tear-down)
+                  (when-let [cm (:connection-manager state)]
+                    (httpcm/shutdown-manager cm))
+                  (dissoc state :connection-manager))]
+    (if (map? state)
+      (tear-it state)
+      (swap! state tear-it))))
 
 (defn url-dfv
-  "Return the missionary dataflow variable for the given URL."
+  "Return the missionary dataflow variable for the given URL.
+  The state can either be an atom or a map. "
   [state url]
-  (get-in state [:dfv-by-url url]))
+  (get-in (if (map? state) state @state) [:dfv-by-url url]))
 
 (defn url-in?
-  "Return true if url has been added to the state"
+  "Return true if url has been added to the state
+  The state can either be an atom or a map.
+  "
   [state url]
   (url-dfv state url))
 
 (defn url-result
-  "Return the result value for a given url or nil if not yet processed."
+  "Return the result value for a given url or nil if not yet processed.
+  The state can either be an atom or a map.
+  "
   [state url]
-  (get-in state [:results-by-url url]))
+  (get-in (if (map? state) state @state) [:results-by-url url]))
 
-(defmacro await-url-result
+(defmacro await-result
   "Return the result value for a given url, blocking thread if not yet ready."
   [state url]
   `(m/? (url-dfv ~state ~url))
@@ -194,47 +212,50 @@
   ;;
 )
 
-(defn assign
+(defn assign!
   "Assign a result for a given URL in the state.
-  Returns the updated state."
+  Return the updated state value."
   [state url result]
-  (let [result (assoc result :url url)]
-    (if (url-result state url)
-      state
-      (do
-        (mu/log ::assign :url url :result result)
-        (print-url-result url result)
-        ((url-dfv state url) result)
-        (-> state
-            (update :dfv-assigned inc)
-            (update :unassigned-urls disj url)
-            (assoc-in [:results-by-url url] result)
-            (update-in [:urls-by-result (:result result)] conj url))))))
+  (mu/log ::assign! :url url :result result)
+  (print-url-result url result)
+  (swap! state
+         (fn [state]
+           (let [result (assoc result :url url)]
+             (if (url-result state url)
+               state
+               (do
+                 ((url-dfv state url) result)
+                 (-> state
+                     (update :dfv-assigned inc)
+                     (update :unassigned-urls disj url)
+                     (update :assigned-urls conj url)
+                     (assoc-in [:results-by-url url] result)
+                     (update-in [:urls-by-result (:result result)]
+                                conj url))))))))
 
-(defn add-url
+(defn add-url!
   "Add a URL to the state, optionally with its processing result, and
-  return an updated state, or the same one if url was already added."
+  return an updated state value, or the same one if url was already added."
   ([state url]
-   (let [in? (url-in? state url)]
-     (if in?
-       state
-       (do (mu/log ::add-url :url url)
-           (-> state
-               (update :urls conj url)
-               (update :dfv-by-url assoc url (m/dfv))
-               (update :unassigned-urls conj url)
-               (update :dfv-created inc))))))
+   (swap! state (fn [state]
+                  (let [in? (url-in? state url)]
+                    (if in?
+                      state
+                      (do (mu/log ::add-url :url url)
+                          (-> state
+                              (update :urls conj url)
+                              (update :dfv-by-url assoc url (m/dfv))
+                              (update :unassigned-urls conj url)
+                              (update :dfv-created inc))))))))
   ([state url result]
-   (-> state
-       (add-url url)
-       (assign url result))))
+   (add-url! state url)
+   (assign! state url result)))
 
-(defn add-input-url
-  "Add an input URL to the state and return an updated state. Duplicates
-  can be added as no attempt is made to check previous input."
+(defn add-input-url!
+  "Add an input URL to the state and return an updated state value.
+  Duplicates can be added as no attempt is made to check previous input."
   [state url]
-  (-> state
-      (update :input-urls conj url)))
+  (swap! state #(update % :input-urls conj url)))
 
 ;; ---------------------------------------------------------
 ;; User Agent header needed by Wikipedia otherwise it blocks
@@ -290,7 +311,7 @@
   ([state url options]
    (m/sp
      (let [r (try
-               (let [cm (:connection-manager state)]
+               (let [cm (:connection-manager @state)]
                  (-> (merge options {:connection-manager cm
                                      :method :head
                                      :url url
@@ -328,7 +349,7 @@
     - :invalid if the provided page points to a non-existent page."
   [state source-language target-language page]
   (m/sp
-    (let [cm (:connection-manager state)
+    (let [cm (:connection-manager @state)
           url (str "https://" source-language
                    ".wikipedia.org/w/api.php?action=query&prop=langlinks&titles="
                    page "&lllang=" target-language "&format=json")
@@ -377,24 +398,23 @@
   "Return a task to check if `url` points to a wikipedia page in the same
   language as the document language, and suggesting the corresponding
   page in the document language if it exists.
-  The task returns a vector in the form `[state url result]` where:
-    - `state`: the state
+  The task returns a vector in the form `[url result]` where:
     - `url`: input URL, or URL of the corresponding wikipedia page that
              matches the document language
     - `result`: nil if the URL fails to register as a wikipedia page,
                 or a result map for the input url as per ->result."
   [state url]
   (m/sp
-    (let [target-lang (state :language)
+    (let [target-lang (@state :language)
           [_ source-lang page fragment]
           (re-matches #"^https?://(\w*)\.wikipedia\.org/wiki/([^#]*)#?([^#]*)$"
                       url)]
       (cond
         (nil? page) ;; not a wikipedia page
-        [state url nil]
+        [url nil]
         (= source-lang target-lang) ;; page lang matches doc lang
         (let [result (m/? (url-status state url headers))]
-          [state url (add-msg result "URL language matches document language")])
+          [url (add-msg result "URL language matches document language")])
         :else ;; search for translation into doc lang
         (let [tourl (m/? (get-translated-page-url state source-lang
                                                   target-lang page))
@@ -411,24 +431,24 @@
                          (not (str/blank? fragment))
                          (add-warning (str "Cannot carry fragment #" fragment
                                            "over to " target-lang))))]
-          [state (if (not (keyword? tourl)) tourl url) result])))))
+          [(if (not (keyword? tourl)) tourl url) result])))))
 
 ;; ---------------------------------------------------------
 ;; URL handling
 
-(defn process-http-based-on-https
+(defn process-http-based-on-https!
   "Returns a task to process one http url given the result of processing its
   https equivalent. An optional result map for the http url can be passed.
   It will be used in case the https url is not validated, and will be augmented
   with the given https-url-result (using `add-previous`).
-  The task returns the updated state.
+  The task returns the updated state value.
   Use `url-result` to retrieve the result of processing the url."
   ([state url https-url https-url-result]
-   (process-http-based-on-https state url https-url https-url-result nil))
+   (process-http-based-on-https! state url https-url https-url-result nil))
   ([state url https-url https-url-result result-when-https-failed]
    (m/sp
      (mu/log ::http-https :url url :https-url-result https-url-result
-             :http-url-result-when-https-failed result-when-https-failed)
+             :result-when-https-failed result-when-https-failed)
      (let [https-url-result (or https-url-result
                                 (url-result state https-url)
                                 (m/? (url-status state url)))
@@ -445,81 +465,85 @@
                          (-> (m/? (url-status state url))
                              (add-msg "HTTPS wasn't resolved satisfactorily"))))
                    (add-previous https-url-result)))]
-       (assign state url http-url-result)))))
+       (assign! state url http-url-result)))))
 
-(defn process-url
-  "Returns a task to process one url. The task returns the updated state.
+(defn process-url!
+  "Returns a task to process one url. The task returns the updated state value.
   Use `url-result` to retrieve the result of processing the url."
   [state url]
   (m/sp
-    (let [state (add-input-url state url)]
-      (if (url-in? state url)
-        ;; 1/ url was already encountered before, just return the state
-        state
-        ;; 2/ url is new, add it to state and check http/https
-        (let [state (add-url state url)
-              https-url (->https url)
-              http-url? (and https-url (not= url https-url))
-              https-url? (and https-url (= url https-url))
-              https-url-result (and http-url? ;; cant' wait on oneself
-                                    (url-in? state https-url)
-                                    (await-url-result state https-url))]
-          (if https-url
-            ;; 3/ url is http or https
-            (if (and http-url? https-url-result)
-              ;; 4/ url is http and new but https version was seen before
-              (m/? (process-http-based-on-https state url https-url
-                                                https-url-result))
-              ;; url can't be https and seen before, this is caught by 1/
-              ;; 5/ new http or https url, if http then https is also new
-              (let [[state wp-url wp-url-result]
-                    (m/? (check-wikipedia-url state https-url))
-                    wp-page? wp-url-result
-                    translation-found? (and wp-url-result
-                                            (not= https-url wp-url))]
-                (if wp-page?
-                  ;; url looks like a wikipedia page
-                  (cond-> state
-                    (and https-url? (not translation-found?))
-                    (assign url wp-url-result)
-                    (and https-url? translation-found?)
-                    (assign https-url
+    (add-input-url! state url)
+    (if (url-in? state url)
+      ;; 1/ url was already encountered before, just return the state
+      @state
+      ;; 2/ url is new, add it to state and check http/https
+      (let [_ (add-url! state url) ;; first things first!
+            https-url (->https url)
+            http-url? (and https-url (not= url https-url))
+            https-url? (and https-url (= url https-url))
+            https-url-result (and http-url? ;; no wait on oneself
+                                  (url-in? state https-url)
+                                  (await-result state https-url))]
+        (if https-url
+          ;; 3/ url is http or https
+          (if (and http-url? https-url-result)
+            ;; 4/ url is http and new but https version was seen before
+            (m/? (process-http-based-on-https! state url https-url
+                                               https-url-result))
+            ;; url can't be https and seen before, this is caught by 1/
+            ;; 5/ new http or https url, if http then https is also new
+            (let [[wp-url wp-url-result]
+                  (m/? (check-wikipedia-url state https-url))
+                  wp-page? wp-url-result
+                  translation-found? (and wp-url-result
+                                          (not= https-url wp-url))]
+              (if wp-page?
+                ;; url looks like a wikipedia page
+                (cond
+                  (and https-url? (not translation-found?))
+                  (assign! state url wp-url-result)
+                  (and https-url? translation-found?)
+                  (assign! state https-url
+                           (-> (->result https-url :replace :location wp-url)
+                               (add-msg (str "Translation for " https-url))
+                               (add-previous wp-url-result)))
+                  translation-found?
+                  (add-url! state wp-url
+                            (-> (->result wp-url :success
+                                          (str "Translation for: " url))
+                                (add-previous wp-url-result)))
+                  (and http-url? translation-found?)
+                  (add-url! state https-url
                             (-> (->result https-url :replace :location wp-url)
                                 (add-msg (str "Translation for " https-url))
                                 (add-previous wp-url-result)))
-                    translation-found?
-                    (add-url wp-url
-                             (-> (->result wp-url :success
-                                           (str "Translation for: " url))
-                                 (add-previous wp-url-result)))
-                    (and http-url? translation-found?)
-                    (add-url https-url
-                             (-> (->result https-url :replace :location wp-url)
-                                 (add-msg (str "Translation for " https-url))
-                                 (add-previous wp-url-result)))
-                    (and http-url? (not translation-found?))
-                    (-> (process-http-based-on-https
-                         url https-url https-url-result
-                         (->result url :failure "Not a valid wikipedia page."))
-                        m/?))
-                  ;; url is http or https but not a wikipedia page
-                  (let [https-url-result (or https-url-result
-                                             (and http-url? ;; cant' wait on oneself
-                                                  (url-in? state https-url)
-                                                  (await-url-result
-                                                   state https-url))
-                                             (m/? (url-status state https-url)))]
-                    (if https-url?
-                      (assign state url https-url-result)
-                      (m/? (process-http-based-on-https state url https-url
-                                                        https-url-result)))))))
-            ;; url is not http or https, just ignore
-            (assign state url (->result url :ignored "Not an HTTP(S) URL"))))))))
+                  (and http-url? (not translation-found?))
+                  (m/?
+                   (process-http-based-on-https!
+                    state url https-url https-url-result
+                    (->result url :failure "Not a valid wikipedia page.")))
+                  :else
+                  (throw (ex-info "Unhandled condition"
+                                  {:url url :wp-url-result wp-url-result})))
+                ;; url is http or https but not a wikipedia page
+                (let [https-url-result (or https-url-result
+                                           (and http-url? ;; no wait on oneself
+                                                (url-in? state https-url)
+                                                (await-result
+                                                 state https-url))
+                                           (m/? (url-status state https-url)))]
+                  (if https-url?
+                    (assign! state url https-url-result)
+                    (m/? (process-http-based-on-https! state url https-url
+                                                       https-url-result)))))))
+          ;; url is not http or https, just ignore
+          (assign! state url
+                   (->result url :ignored "Not an HTTP(S) URL")))))))
 
 (defn process-urls
   "Return a flow of tasks processing each URL of a given sequence.
-  Each tasks is built with `process-url` and return an updated state.
-  An optional parameter defines the number of concurrent URL processing,
+  Each tasks is built with `process-url` and return an updated state value.
+  An optional `par` specifies the number of concurrent URL processing,
   which by default are processed sequentially."
   ([state-or-language urls]
    (let [state (if (string? state-or-language)
@@ -527,12 +551,12 @@
                  state-or-language)]
      (mu/log ::process-urls :state state :urls urls)
      (m/ap
-       (loop [state (init-state state-or-language)
-              urls urls]
-         (if (seq urls)
-           (let [state (m/? (process-url state (first urls)))]
-             (m/amb state (recur state (next urls))))
-           (m/amb))))))
+       (let [state (init-state state-or-language)]
+         ;; from now on state is an atom
+         (loop [urls urls]
+           (if (seq urls)
+             (m/amb (m/? (process-url! state (first urls))) (recur (next urls)))
+             (m/amb)))))))
   ;; TODO: make state an atom and use m/join instead of the loop above
   ;; until then the below will still process URLs sequentially
   ([par state-or-language urls]
@@ -572,27 +596,6 @@
     :hrefs hrefs
     :language language}))
 
-(defn process-app-state
-  "Parse the given app state and return an updated state resulting from
-  processing the URLs it contains."
-  [{:keys [input-name language] :as state}]
-  (println "Processing" input-name)
-  (println "Language" language)
-  (let [final-state (try
-                      (some->> state
-                               :hrefs
-                               (process-urls state)
-                               ;; the following does not process URLs in //
-                               ;; See TODO comment in process-urls
-                               ;;(process-urls 10 state)
-                               (m/reduce {} state)
-                               m/?)
-                      (finally (tear-down state)))]
-    (mu/log ::final-state :state final-state)
-    (some-> final-state
-            check-results
-            print-summary)))
-
 ;; ---------------------------------------------------------
 ;; Application setup
 
@@ -618,8 +621,9 @@
    (System/exit status)))
 
 (defn greet
-  "Return a greeting message, options map may contain :username and :println?
-   to respectively include the user name and call println."
+  "Return a greeting message, options map may contain `:username` and `:println?`
+  to respectively include the user name and call println, which is called
+  by default to print the greeting message."
   ([] (greet {:println? true}))
   ([options]
    (let [{:keys [username println?]} options
@@ -629,6 +633,27 @@
                true     (str "\nUser-Agent: " user-agent))]
      (when println? (println msg))
      msg)))
+
+(defn process-app-state
+  "Parse the given app state and return an updated state resulting from
+  processing the URLs it contains."
+  [{:keys [input-name language] :as state}]
+  (println "Processing" input-name)
+  (println "Language" language)
+  (let [final-state (try
+                      (some->> state
+                               :hrefs
+                               ;;(process-urls state)
+                               ;; the following does not process URLs in //
+                               ;; See TODO comment in process-urls
+                               (process-urls 10 state)
+                               (m/reduce {} state)
+                               m/?)
+                      (finally (tear-down! state)))]
+    (mu/log ::final-state :state final-state)
+    (some-> final-state
+            check-results
+            print-summary)))
 
 (defn run
   "Main processing logic"
