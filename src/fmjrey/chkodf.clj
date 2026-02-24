@@ -10,8 +10,7 @@
 ;; ---------------------------------------------------------
 
 (ns fmjrey.chkodf
-  (:import [java.util Locale]
-           [org.odftoolkit.odfdom.dom.element.text TextAElement]
+  (:import [org.odftoolkit.odfdom.dom.element.text TextAElement]
            [org.odftoolkit.odfdom.doc OdfDocument$UnicodeGroup OdfDocument]
            [java.util.concurrent Future])
   (:require [app :refer [app-info app-name app-home app-cli
@@ -23,7 +22,8 @@
             [clojure.tools.cli :refer [parse-opts]]
             [clojure.java.io :as io]
             [missionary.core :as m]
-            [com.brunobonacci.mulog :as mu])
+            [com.brunobonacci.mulog :as mu]
+            [com.brunobonacci.mulog.buffer :as mubuf])
   (:gen-class))
 
 ;; ---------------------------------------------------------
@@ -137,6 +137,30 @@
     (println (name result) ": " (count urls)))
   state)
 
+;; A mulog publisher to print events on the console in human readable format
+(deftype ConsolePublisher [buffer transform]
+  com.brunobonacci.mulog.publisher.PPublisher
+  (agent-buffer [_]
+    buffer)
+  (publish-delay [_]
+    200)
+  (publish [_ buffer]
+    ;; items are pairs [offset <item>]
+    (doseq [event  (transform (map second (mubuf/items buffer)))]
+      (case (event :mulog/event-name)
+        ::assign! (print-url-result (event :url) (event :result))
+        ::final-state (some-> event
+                              :state
+                              check-results
+                              print-summary)))
+    (flush)
+    (mubuf/clear buffer)))
+
+#_{:clj-kondo/ignore [:unused-private-var]}
+(defn ^:private print-results
+  [{:keys [transform] :as _config}]
+  (ConsolePublisher. (mubuf/agent-buffer 1000) (or transform identity)))
+
 ;; ---------------------------------------------------------
 ;; Application state
 
@@ -216,11 +240,10 @@
   "Assign a result for a given URL in the state.
   Return the updated state value."
   [state url result]
-  (mu/log ::assign! :url url :result result)
-  (print-url-result url result)
-  (swap! state
-         (fn [state]
-           (let [result (assoc result :url url)]
+  (let [result (assoc result :url url)]
+    (mu/log ::assign! :url url :result result)
+    (swap! state
+           (fn [state]
              (if (url-result state url)
                state
                (do
@@ -635,18 +658,26 @@
   [{:keys [input-name language] :as state}]
   (println "Processing" input-name)
   (println "Language" language)
-  (let [final-state (try
-                      (some->> state
-                               :hrefs
-                               ;;(process-urls state)
-                               (process-urls 10 state) ;; process URLs in //
-                               (m/reduce {} state)
-                               m/?)
-                      (finally (tear-down! state)))]
-    (mu/log ::final-state :state final-state)
-    (some-> final-state
-            check-results
-            print-summary)))
+  (let [console-publisher ;; mulog publisher to print results to the console
+        (mu/start-publisher!
+         {:type :custom
+          :fqn-function "fmjrey.chkodf/print-results"
+          :transform (fn [events]
+                       (filter #(#{::assign! ::final-state}
+                                  (:mulog/event-name %)) events))})]
+    (try
+      (let [final-state (try
+                          (some->> state
+                                   :hrefs
+                                   ;;(process-urls state)
+                                   (process-urls 10 state)
+                                   (m/reduce {} state)
+                                   m/?)
+                          (finally (tear-down! state)))]
+        (mu/log ::final-state :state final-state))
+      (finally ;; stop the console publisher
+        (Thread/sleep 250) ;; some delay to allow last events to be processed
+        (console-publisher)))))
 
 (defn run
   "Main processing logic"
