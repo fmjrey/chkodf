@@ -546,21 +546,16 @@
   An optional `par` specifies the number of concurrent URL processing,
   which by default are processed sequentially."
   ([state-or-language urls]
+   (process-urls state-or-language urls 1))
+  ([par state-or-language urls]
    (let [state (if (string? state-or-language)
                  {:language state-or-language}
-                 state-or-language)]
+                 state-or-language)
+         atom-state (init-state state-or-language)]
      (mu/log ::process-urls :state state :urls urls)
      (m/ap
-       (let [state (init-state state-or-language)]
-         ;; from now on state is an atom
-         (loop [urls urls]
-           (if (seq urls)
-             (m/amb (m/? (process-url! state (first urls))) (recur (next urls)))
-             (m/amb)))))))
-  ;; TODO: make state an atom and use m/join instead of the loop above
-  ;; until then the below will still process URLs sequentially
-  ([par state-or-language urls]
-   (m/ap (m/?> par (process-urls state-or-language urls)))))
+       (let [url (m/?> par (m/seed urls))]
+         (m/? (process-url! atom-state url)))))))
 
 ;; ---------------------------------------------------------
 ;; Parse ODF document and generate a sequence of URL strings
@@ -644,9 +639,7 @@
                       (some->> state
                                :hrefs
                                ;;(process-urls state)
-                               ;; the following does not process URLs in //
-                               ;; See TODO comment in process-urls
-                               (process-urls 10 state)
+                               (process-urls 10 state) ;; process URLs in //
                                (m/reduce {} state)
                                m/?)
                       (finally (tear-down! state)))]
