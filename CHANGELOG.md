@@ -9,8 +9,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/)
 * **Resolved** resolved issue
 * **Security** vulnerability related change
 
-## [Unreleased]
+## [Unreleased**
 
+## 0.3 - 2026-02-24
+**Changed** Faster processing of URLs in parallel.
+**Changed** Console output is not garbled by concurrent result printing.
 
 ## 0.2 - 2026-01-19
 * **Added** First cut at using missionary to eventually handle concurrent IO
