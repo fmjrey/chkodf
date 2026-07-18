@@ -53,13 +53,14 @@
        (apply assoc result kvs)
        result)))
   ([response]
-   (let [{:keys [status reason-phrase trace-redirects]} response
+   (let [{:keys [status reason-phrase trace-redirects request]} response
          redirects? (seq trace-redirects)
          result (cond
                   (= 200 status) :success
-                  (and redirects? (< 199 status 400)) :redirect
+                  (and redirects? (< 299 status 400)) :redirect
                   :else :failure)
-         msgs (cond-> [(str status " " reason-phrase)]
+         msgs (cond-> [(str (-> request :request-method name str/upper-case)
+                           " " status " " reason-phrase)]
                 redirects? (conj (str "Redirects: " trace-redirects)))]
      (cond-> (->result (-> response :request :url) result
                        :status status
@@ -329,21 +330,26 @@
 (defn url-status
   "Return a task that retrieves a URL HTTP status with a HEAD request.
   An optional options map will be merged with the request map.
+  If the HEAD method is not allowed (HTTP code 403/405) a GET will be issued.
   The task returns a map as per `->result`."
   ([state url] (url-status state url nil))
   ([state url options]
    (m/sp
      (let [r (try
-               (let [cm (:connection-manager @state)]
-                 (-> (merge options {:connection-manager cm
-                                     :method :head
-                                     :url url
-                                     :throw-exceptions false
-                                     :cookie-policy :none
-                                     :save-request? true})
-                     http-request
-                     m/?
-                     ->result))
+               (let [cm (:connection-manager @state)
+                     opts (merge options {:connection-manager cm
+                                          :method :head
+                                          :url url
+                                          :throw-exceptions false
+                                          :cookie-policy :none
+                                          :save-request? true})
+                     result (-> opts http-request m/? ->result)]
+                 (if (#{403 405} (:status result))
+                   (let [msgs (:msgs result)
+                         opts (assoc opts :method :get)
+                         result (-> opts http-request m/? ->result)]
+                     (assoc result :msgs (into msgs (:msgs result))))
+                   result))
                (catch Throwable t
                  (->result url :failure (.toString t))))]
        ;;(mu/log ::url-status :result r)
